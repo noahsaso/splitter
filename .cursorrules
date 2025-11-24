@@ -1,0 +1,177 @@
+# Splitter - Bill Splitting App
+
+## Project Overview
+A Next.js app for splitting receipts among friends with AI-powered receipt parsing using Anthropic's Claude API.
+
+## Tech Stack
+- **Framework**: Next.js 16 (App Router)
+- **React**: 19
+- **Language**: TypeScript (strict mode)
+- **Styling**: Tailwind CSS with clsx for conditional classes
+- **State Management**: Jotai with localStorage persistence
+- **AI**: Anthropic Claude API for receipt parsing
+- **ID Generation**: nanoid for unique receipt IDs
+
+## Project Structure
+
+### Core Directories
+```
+/app                    - Next.js app router pages and API routes
+  /api/split           - Receipt parsing API endpoint (uses Claude)
+/components            - React components
+  BillSplitter.tsx     - Main orchestrator component (state management)
+  UploadScreen.tsx     - Upload/demo receipt screen with saved receipts list
+  ReceiptScreen.tsx    - Bill splitting interface
+  ReceiptUrlSync.tsx   - URL synchronization component (wrapped in Suspense)
+  *Icon.tsx           - SVG icon components
+/lib                   - Shared utilities and types
+  types.ts            - Shared TypeScript types (Receipt, PersonTotal, Theme)
+  store.ts            - Jotai atoms for localStorage persistence
+  utils.ts            - Utility functions (getTimeAgo)
+```
+
+## Architecture Patterns
+
+### Component Hierarchy
+```
+BillSplitter (orchestrator - manages all state)
+├── ReceiptUrlSync (handles URL sync, wrapped in Suspense)
+├── UploadScreen (when no receipt loaded)
+│   ├── File upload
+│   ├── Demo receipt button
+│   ├── Saved receipts list (swipe-to-delete)
+│   └── Delete confirmation modal
+└── ReceiptScreen (when receipt is loaded)
+    ├── Summary section
+    ├── People management
+    ├── Item assignments
+    └── Totals calculation
+```
+
+### State Management
+- **Main state lives in BillSplitter.tsx**: receipt, people, assignments, swipeState, etc.
+- **Persistent state**: Jotai's `atomWithStorage` in `lib/store.ts`
+- **URL state**: Synced via `ReceiptUrlSync` component (ID in query params)
+- **Auto-save**: useEffect in BillSplitter saves to localStorage on every change
+
+### Key Data Structures
+```typescript
+Receipt = {
+  restaurant: string
+  subtotal: number    // Sum of all item prices
+  tax: number
+  tip: number
+  total: number      // subtotal + tax + tip
+  items: Array<{id, name, price}>
+}
+
+StoredReceipt = {
+  id: string         // nanoid()
+  receipt: Receipt
+  people: string[]
+  assignments: Record<itemId, personNames[]>
+  lastEditedAt: number
+}
+```
+
+## Important Implementation Details
+
+### Receipt Calculation Logic
+1. **Multiplier**: `total / subtotal` (accounts for tax + tip)
+2. **Per-person subtotal**: Sum of assigned item prices (split if shared)
+3. **Per-person total**: `subtotal * multiplier`
+4. **CRITICAL**: Item prices MUST sum exactly to receipt subtotal to avoid rounding errors
+
+### Swipe-to-Delete Pattern
+- Uses touch and mouse events for cross-platform support
+- State tracked in `swipeState` Record with keys:
+  - `[id]`: start X position
+  - `[id]-offset`: current swipe offset
+  - `[id]-start-offset`: offset when swipe started
+  - `[id]-moved`: whether user moved (prevents accidental clicks)
+- Thresholds: 40px (snap back), 60px (snap open to 80px)
+- `SWIPE_DELETE_OFFSET = 80` constant
+
+### URL Synchronization
+- `ReceiptUrlSync` component wrapped in Suspense (required for useSearchParams)
+- Uses `useRef` to track previous receipt ID to distinguish clearing vs initial load
+- **Race condition prevention**: Only ReceiptUrlSync manipulates URLs
+- `resetAll()` does NOT call `router.replace()` to avoid conflicts
+
+### Theme System
+- Single theme object generated in BillSplitter based on `darkMode` state
+- All theme classes are Tailwind CSS classes
+- Passed as props to child components
+- Type-safe with `Theme` type from `lib/types.ts`
+
+## Development Guidelines
+
+### Type Safety
+- All shared types in `/lib/types.ts`
+- Import types from central locations: `@/lib/store`, `@/lib/types`
+- Never duplicate type definitions across files
+- Use `type` imports: `import type { Receipt } from "@/lib/store"`
+
+### Component Patterns
+- **State management**: Only BillSplitter manages state, children receive props
+- **"use client"**: Required for all interactive components
+- **No emojis**: Unless explicitly requested by user
+- **Avoid over-engineering**: Keep solutions simple and focused
+- **clsx for classes**: Use `clsx()` for all conditional classNames
+
+### Styling Conventions
+- Tailwind utility classes only
+- Use `clsx()` for conditional classes: `clsx("base", condition && "conditional")`
+- Common patterns:
+  - Containers: `max-w-lg mx-auto px-4 py-8`
+  - Cards: `rounded-2xl shadow-sm overflow-hidden`
+  - Sections: `mb-6` spacing between major sections
+
+### File Operations
+- **Constants**: Keep in the file where primarily used
+- **Utilities**: Extract to `/lib/utils.ts` if reusable
+- **Types**: Always in `/lib/types.ts` if shared
+- **Components**: One component per file, named exports for icons
+
+## Common Tasks
+
+### Adding a New Feature
+1. Determine if state is needed (add to BillSplitter if so)
+2. Create new component file if needed
+3. Import shared types from `/lib/types.ts`
+4. Pass necessary props from BillSplitter
+5. Update TypeScript types as needed
+6. Test with demo receipt first
+
+### Modifying Receipt Calculations
+1. Check `totals` useMemo in BillSplitter.tsx
+2. Ensure math is consistent (items sum = subtotal)
+3. Consider floating-point precision
+4. Update derived values: `unassignedItems`, `assignedTotal`, `isFullyAssigned`
+
+### Updating Styles
+1. Modify `theme` object in BillSplitter.tsx for global changes
+2. Use existing theme properties when possible
+3. Add new theme properties to `Theme` type if needed
+4. Prefer Tailwind utilities over custom CSS
+
+### Adding New Storage Fields
+1. Update `StoredReceipt` type in `/lib/store.ts`
+2. Update auto-save useEffect in BillSplitter.tsx
+3. Update `loadReceipt` function to restore new fields
+4. Consider migration for existing localStorage data
+
+## Testing Considerations
+- Test with demo receipt (must have consistent math)
+- Test swipe gestures on both touch and mouse
+- Test URL sharing and deep linking
+- Test localStorage persistence across sessions
+- Test back button behavior
+- Verify no infinite re-renders with URL sync
+
+## Known Patterns to Maintain
+- ReceiptUrlSync is the ONLY component that manipulates URLs
+- All derived values calculated in BillSplitter, passed as props
+- Theme object generated once in BillSplitter
+- Auto-save triggers on receipt/people/assignments changes
+- nanoid() generates all new receipt IDs
